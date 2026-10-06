@@ -1,35 +1,60 @@
 import sys
 import os
 import json
-import unittest
+from unittest.mock import MagicMock, patch
 
-# Add lambda directory to sys.path so lambda_function can be imported
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../lambda')))
+sys.path.append(
+    os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../lambda")
+    )
+)
 
 from lambda_function import lambda_handler
 
-class TestLambdaFunction(unittest.TestCase):
 
-    def test_lambda_handler_success(self):
-        event = {"records": [{"id": 1, "name": "record_1"}, {"id": 2, "name": "record_2"}]}
-        context = {}
-        
-        response = lambda_handler(event, context)
-        
-        self.assertEqual(response["statusCode"], 200)
-        body = json.loads(response["body"])
-        self.assertEqual(body["message"], "Data pipeline processed successfully!")
-        self.assertEqual(body["records_processed"], 2)
+class TestLambdaFunction:
 
-    def test_lambda_handler_empty_event(self):
-        event = {}
-        context = {}
-        
-        response = lambda_handler(event, context)
-        
-        self.assertEqual(response["statusCode"], 200)
-        body = json.loads(response["body"])
-        self.assertEqual(body["records_processed"], 0)
+    @patch("lambda_function.table")
+    def test_duplicate_file(self, mock_table):
 
-if __name__ == '__main__':
-    unittest.main()
+        # DynamoDB says file was already processed
+        mock_table.get_item.return_value = {
+            "Item": {
+                "pipeline_id": "orders",
+                "last_file": "orders/emp.txt",
+                "status": "SUCCESS"
+            }
+        }
+
+        event = {
+            "Records": [
+                {
+                    "body": json.dumps({
+                        "Records": [
+                            {
+                                "s3": {
+                                    "bucket": {
+                                        "name": "demopipelines3"
+                                    },
+                                    "object": {
+                                        "key": "orders/emp.txt"
+                                    }
+                                }
+                            }
+                        ]
+                    })
+                }
+            ]
+        }
+
+        response = lambda_handler(event, {})
+
+        assert response["statusCode"] == 200
+        assert response["message"] == "File processed successfully"
+
+        mock_table.get_item.assert_called_once()
+
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main()
